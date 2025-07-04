@@ -74,54 +74,59 @@ for i, path in enumerate(txt_files):
             cid, _, cnt = line.strip().split("\t")
             raw_counts[i, int(cid)] = int(cnt)
 
+
 # 스무딩 윈도우 & 히스테리시스 파라미터
 smoothing_windows = [3, 5, 7]
-K = 3  # 연속 3프레임 유지해야 state 바뀜
+K_values = [0, 1, 2]  # 여러 K값 테스트
 
 for w in smoothing_windows:
-    out_dir = os.path.join(out_base, f"win{w}_K{K}")
-    os.makedirs(out_dir, exist_ok=True)
-
-    # 1) 인접 프레임 다수결
     smoothed = temporal_mode_smoothing(raw_counts, w)
-    # 2) 히스테리시스 필터
-    filtered = hysteresis_filter(smoothed, K)
+    
+    for k in K_values:
+        out_dir = os.path.join(out_base, f"win{w}_K{k}")
+        os.makedirs(out_dir, exist_ok=True)
 
-    # 변화 감지 & 오버레이
-    prev = filtered[0]
-    for idx, eid in enumerate(event_ids):
-        curr = filtered[idx]
-        diff = curr - prev
+        # 2) 히스테리시스 필터(k=0이면 건너뜀)
+        if k > 0:
+            filtered = hysteresis_filter(smoothed, k)
+        else:
+            filtered = smoothed.copy()
 
-        # change 텍스트
-        changes = []
-        for c in range(num_classes):
-            if diff[c] > 0:
-                changes.append(f"+{diff[c]} {CLASSES[c]}")
-            elif diff[c] < 0:
-                changes.append(f"{diff[c]} {CLASSES[c]}")
-        change_text = ", ".join(changes) if changes else "no change"
+        # 변화 감지 & 오버레이
+        prev = filtered[0]
+        for idx, eid in enumerate(event_ids):
+            curr = filtered[idx]
+            diff = curr - prev
 
-        # 이미지 오버레이
-        img_path = os.path.join(img_dir, f"testset_event_{eid:05d}_2.jpg")
-        img = cv2.imread(img_path)
-        if img is None:
+            # change 텍스트
+            changes = []
+            for c in range(num_classes):
+                if diff[c] > 0:
+                    changes.append(f"+{diff[c]} {CLASSES[c]}")
+                elif diff[c] < 0:
+                    changes.append(f"{diff[c]} {CLASSES[c]}")
+            change_text = ", ".join(changes) if changes else "no change"
+
+            # 이미지 오버레이
+            img_path = os.path.join(img_dir, f"testset_event_{eid:05d}_2.jpg")
+            img = cv2.imread(img_path)
+            if img is None:
+                prev = curr
+                continue
+
+            org_y, dy, font = 30, 25, cv2.FONT_HERSHEY_SIMPLEX
+            cv2.putText(img, f"Event:{eid} W:{w} K:{k}", (10, org_y), font, 0.8, (0,255,0), 2)
+            cv2.putText(img, f"Change:{change_text}", (10, org_y+dy), font, 0.5, (0,255,255), 2)
+
+            line = 2
+            for c in range(num_classes):
+                if curr[c] > 0:
+                    txt = f"{CLASSES[c]}:{curr[c]}"
+                    cv2.putText(img, txt, (10, org_y+(line+1)*dy), font, 0.6, (255,255,255), 1)
+                    line += 1
+
+            out_path = os.path.join(out_dir, f"event_{eid:05d}.jpg")
+            cv2.imwrite(out_path, img)
             prev = curr
-            continue
 
-        org_y, dy, font = 30, 25, cv2.FONT_HERSHEY_SIMPLEX
-        cv2.putText(img, f"Event:{eid} W:{w} K:{K}", (10, org_y), font, 0.8, (0,255,0), 2)
-        cv2.putText(img, f"Change:{change_text}", (10, org_y+dy), font, 0.5, (0,255,255), 2)
-
-        line = 2
-        for c in range(num_classes):
-            if curr[c] > 0:
-                txt = f"{CLASSES[c]}:{curr[c]}"
-                cv2.putText(img, txt, (10, org_y+(line+1)*dy), font, 0.6, (255,255,255), 1)
-                line += 1
-
-        out_path = os.path.join(out_dir, f"event_{eid:05d}.jpg")
-        cv2.imwrite(out_path, img)
-        prev = curr
-
-    print(f"[DONE] win={w}, K={K} → {out_dir}")
+        print(f"[DONE] win={w}, K={k} → {out_dir}")

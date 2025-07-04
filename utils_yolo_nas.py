@@ -146,6 +146,18 @@ def detection_voting(
     # cams 간 union (max)으로 최종 카운트
     union_counts = np.max(counts, axis=1)
 
+    # ────────────────────────────────────────────────────
+    # 2대 이상 카메라에서 잡혀야만 카운팅 시작 (Boolean filter)
+    # ────────────────────────────────────────────────────
+    # 각 클래스별로 검출된 카메라 수 세기
+    cam_hits = np.count_nonzero(counts > 0, axis=1)  # shape (num_classes,)
+    # True인 애들만 카운팅 허용
+    valid_mask = cam_hits >= 2                      # shape (num_classes,), dtype=bool
+
+    # valid_mask False인 클래스들은 0으로 (noisy 제거)
+    union_counts = union_counts * valid_mask.astype(int)
+    # ────────────────────────────────────────────────────
+
     # 결과 파일 쓰기
     with open(output_txt_path, "w") as f:
         for cls_id, cnt in enumerate(union_counts):
