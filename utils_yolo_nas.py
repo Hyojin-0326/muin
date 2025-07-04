@@ -102,9 +102,9 @@ def nms(pred, score_thres=0.7, iou_thres=0.5, max_det=100):
 # -----------------------------------
 # 3) Detection + Union + 파일출력
 # -----------------------------------
-def detection_voting(
-    cam_folders,
-    output_txt_path,
+def detection(
+    cam_inputs, 
+    # output_txt_path 제거: 직접 쓰던 코드에서 txt 쓰기는 main에서 처리
     class_names=CLASSES,
     chkpoint_path="/home/aistore51/checkpoint/yolo_nas_m_w_coco/RUN_20250627_153915_188556/ckpt_best.pth",
     model_name="yolo_nas_s",
@@ -121,46 +121,35 @@ def detection_voting(
     )
     model.eval()
 
-    num_cams = len(cam_folders)
-    counts   = np.zeros((num_classes, num_cams), dtype=int)
+    counts       = np.zeros((num_classes, len(cam_inputs)), dtype=int)
+    boxes_by_cam = {cam_idx: [] for cam_idx in range(len(cam_inputs))}
 
-    # 각 cam 폴더별 inference + NMS + 카운팅
-    for cam_idx, img_folder in enumerate(cam_folders):
-        img_files = sorted([
-            f for f in os.listdir(img_folder)
-            if f.lower().endswith((".jpg",".jpeg",".png"))
-        ])
-        for fname in img_files:
-            img_path = os.path.join(img_folder, fname)
-            pred     = model.predict(img_path)
+    # 각 cam 폴더별 inference + NMS + 카운팅 + boxes 수집
+    for cam_idx, inp in enumerate(cam_inputs):
+    # directory vs single file 처리
+        if os.path.isdir(inp):
+            imgs = sorted([
+                os.path.join(inp,f) for f in os.listdir(inp)
+                if f.lower().endswith((".jpg",".png"))
+            ])
+        else:
+            imgs = [inp]
 
-            # IoU-NMS 적용
-            keep_idxs = nms(pred, score_thres, iou_thres, max_det)
-            labels    = pred.prediction.labels.astype(int)[keep_idxs]
+        for img_path in imgs:
+            pred  = model.predict(img_path)
+            keep  = nms(pred, score_thres, iou_thres, max_det)
+            labs  = pred.prediction.labels.astype(int)[keep]
+            bboxes= pred.prediction.bboxes_xyxy[keep]
 
-            # 클래스별 freq count
-            unique, freqs = np.unique(labels, return_counts=True)
-            for lbl, freq in zip(unique, freqs):
-                counts[lbl, cam_idx] = freq
+            # boxes_by_cam에 (cls, cx, cy) 누적
+            for cls, box in zip(labs, bboxes):
+                x1,y1,x2,y2 = box
+                cx,cy = (x1+x2)/2.0, (y1+y2)/2.0
+                boxes_by_cam[cam_idx].append((int(cls), float(cx), float(cy)))
 
-    # cams 간 union (max)으로 최종 카운트
-    union_counts = np.max(counts, axis=1)
+            # counts 채우기
+            uniq, freq = np.unique(labs, return_counts=True)
+            for c,f in zip(uniq, freq):
+                counts[c, cam_idx] = f
 
-    # ────────────────────────────────────────────────────
-    # 2대 이상 카메라에서 잡혀야만 카운팅 시작 (Boolean filter)
-    # ────────────────────────────────────────────────────
-    # 각 클래스별로 검출된 카메라 수 세기
-    cam_hits = np.count_nonzero(counts > 0, axis=1)  # shape (num_classes,)
-    # True인 애들만 카운팅 허용
-    valid_mask = cam_hits >= 2                      # shape (num_classes,), dtype=bool
-
-    # valid_mask False인 클래스들은 0으로 (noisy 제거)
-    union_counts = union_counts * valid_mask.astype(int)
-    # ────────────────────────────────────────────────────
-
-    # 결과 파일 쓰기
-    with open(output_txt_path, "w") as f:
-        for cls_id, cnt in enumerate(union_counts):
-            f.write(f"{cls_id:02d}\t{class_names[cls_id]}\t{cnt}\n")
-
-    return union_counts
+    return counts, boxes_by_cam
