@@ -1,17 +1,35 @@
 import os
-import numpy as np
-import utils 
 import csv
+import numpy as np
+from collections import deque
+import utils_yolo_nas
 
+
+#%%
 # 설정
 img_folder = "/home/aistore51/Datasets/4.testset_sample" 
+output_csv = "/home/aistore51/git/log.csv"
 output_dir = "/home/aistore51/git/output"
 os.makedirs(output_dir, exist_ok=True)
+os.makedirs(os.path.dirname(output_csv), exist_ok=True)
 
 num_classes = 60
 num_cams = 5
 start_event = 10001
 end_event = 10175
+smooth_window = 3 #5로 할까?
+#price_dict  
+
+
+#%%
+with open(output_csv, "w", newline="") as f:
+    writer = csv.writer(f)
+    writer.writerow(["event_id", "class_id", "class_name", "change", "count", "total_price"])
+
+#시간축 노이즈 제거
+with open(output_csv, "w", newline="") as f:
+    writer = csv.writer(f)
+    writer.writerow(["event_id", "class_id", "class_name", "change", "count", "total_price"])
 
 # 카메라별 폴더 구성
 cam_folders = [
@@ -37,7 +55,7 @@ for event_id in range(start_event, end_event + 1):
     output_txt_path = os.path.join(output_dir, f"event_{event_id:05d}.txt")
 
     # detection_voting 실행
-    utils.detection_voting(
+    utils_yolo_nas.detection_voting(
         cam_folders=temp_cam_folders,
         output_txt_path=output_txt_path
     )
